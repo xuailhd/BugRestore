@@ -8,7 +8,7 @@ namespace BugRestore
 {
     public class History
     {
-        //public int id { get; set; }
+        public int id { get; set; }
         public int action { get; set; }
         public string field { get; set; }
         public string old { get; set; }

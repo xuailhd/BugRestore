@@ -18,7 +18,8 @@ namespace BugRestore
         private StringBuilder log = new StringBuilder();
         private int oldLogLength;
         private int actionstartid = Convert.ToInt32(System.Configuration.ConfigurationManager.AppSettings["ActionStartID"]);
-        private int filestartid = Convert.ToInt32(System.Configuration.ConfigurationManager.AppSettings["ActionStartID"]);
+        private int hisstartid = Convert.ToInt32(System.Configuration.ConfigurationManager.AppSettings["HisStartID"]);
+        private int filestartid = Convert.ToInt32(System.Configuration.ConfigurationManager.AppSettings["FileStartID"]);
         public Form1()
         {
             InitializeComponent();
@@ -28,7 +29,7 @@ namespace BugRestore
 
         private void button1_Click(object sender, EventArgs e)
         {
-            //using (StreamReader sr = new StreamReader(File.OpenRead("C:\\Users\\gxu\\Desktop\\123.html")))
+            //using (StreamReader sr = new StreamReader(File.OpenRead("C:\\backup\\1\\bug-view-2461.html")))
             //{
 
             //    var str = sr.ReadToEnd();
@@ -38,12 +39,12 @@ namespace BugRestore
             //    if (stepsstartindex > 0)
             //    {
             //        var stepsendindex = str.IndexOf("</ol>", stepsstartindex);
-            //        SetAction(bug,str.Substring(stepsstartindex, stepsendindex - stepsstartindex + 5));
+            //        SetAction(bug, str.Substring(stepsstartindex, stepsendindex - stepsstartindex + 5));
             //    }
 
             //}
-            SetFile(new Bug() { id = 1813 }, new DirectoryInfo(System.Configuration.ConfigurationManager.AppSettings["FilePath"]));
-            //this.backgroundWorker1.RunWorkerAsync();
+            //SetFile(new Bug() { id = 1813 }, new DirectoryInfo(System.Configuration.ConfigurationManager.AppSettings["FilePath"]));
+            backgroundWorker1.RunWorkerAsync();
         }
 
         private void backgroundWorker1_DoWork(object sender, DoWorkEventArgs e)
@@ -52,7 +53,7 @@ namespace BugRestore
             List<Bug> bugs = new List<Bug>();
             var contentdivLength = "<div class='content'>".Length;
 
-            foreach (var item in directory.GetFiles())
+            foreach (var item in directory.GetFiles().OrderBy(t => t.Name))
             {
                 if (Regex.IsMatch(item.Name, @"bug-view-\d{3,6}.html"))
                 {
@@ -108,20 +109,20 @@ namespace BugRestore
                                 bug.lastEditedDate = Convert.ToDateTime(lastEditedmatch[2].Value.Trim());
                             }
 
-                            //var stepsstartindex = Regex.Match(str, $@"<div class='content'>(.*)").Index;
-                            //if (stepsstartindex > 0)
-                            //{
-                            //    var stepsendindex = str.IndexOf("</div>", stepsstartindex);
-                            //    bug.steps = str.Substring(stepsstartindex + contentdivLength,
-                            //        stepsendindex - (stepsstartindex + contentdivLength)).Replace("'", "''");
-                            //}
+                            var actionstartindex = Regex.Match(str, $@"<ol id='historyItem'>").Index;
+                            if (actionstartindex > 0)
+                            {
+                                var actionendindex = str.IndexOf("</ol>", actionstartindex);
+                                SetAction(bug, str.Substring(actionstartindex, actionendindex - actionstartindex + 5));
+                            }
 
+                            SetFile(bug, directory);
                             bugs.Add(bug);
                         }
                         catch(Exception ex)
                         {
-                            log.AppendLine(ex.Message + ex.StackTrace);
-                            return;
+                            log.AppendLine(item.Name + "没有成功");
+                            continue;
                         }
                     }
                 }
@@ -133,14 +134,22 @@ namespace BugRestore
 
         private string BuildSqlFile(List<Bug> bugs)
         {
-            var sqlpath = Path.Combine(System.Configuration.ConfigurationManager.AppSettings["FilePath"],
-                DateTime.Now.ToString("yyyyMMdd HHmmss") + ".sql");
-            using (StreamWriter sr = new StreamWriter(
-                File.Create(sqlpath), Encoding.UTF8))
+            var path = Path.Combine(System.Configuration.ConfigurationManager.AppSettings["FilePath"],"..",
+                DateTime.Now.ToString("yyyyMMddHHmmss") + "_");
+
+            int i = 1;
+            int j = 1;
+            StreamWriter sr = new StreamWriter(File.Create(path + j.ToString() + ".sql"), Encoding.UTF8);
+            foreach (var bug in bugs)
             {
-                foreach (var bug in bugs)
+                if (i++ > 200 * j)
                 {
-                    var sqlstr = $@"delete from zt_bug where id={bug.id};
+                    sr.Close();
+                    sr.Dispose();
+                    j++;
+                    sr = new StreamWriter(File.Create(path + j.ToString() + ".sql"), Encoding.UTF8);
+                }
+                var sqlstr = $@"delete from zt_bug where id={bug.id};
                     insert into zt_bug(id,product,branch,module,project,plan,story,
                     storyVersion,task,toTask,toStory,title,keywords,severity,pri,
                     type,os,browser,hardware,found,steps,`status`,color,confirmed,
@@ -155,16 +164,52 @@ namespace BugRestore
                     '{bug.assignedDate}','{bug.resolvedBy}','{bug.resolution}','{bug.resolvedBuild}','{bug.resolvedDate}',
                     '{bug.closedBy}','{bug.closedDate}',{bug.duplicateBug},'{bug.linkBug}',{bug.Case},{bug.caseVersion},{bug.result},
                     {bug.testtask},'{bug.lastEditedBy}','{bug.lastEditedDate}','0');";
+                sr.WriteLine(sqlstr);
+
+                sqlstr = $@"delete from zt_action where objectType='bug' and objectID={bug.id};";
+                sr.WriteLine(sqlstr);
+
+                foreach (var act in bug.Actions)
+                {
+                    sqlstr = $@"delete from zt_action where id={act.id};
+                        insert into zt_action(id,objectType,objectID,product,project,
+                        actor,action,date,comment,extra,`read`)
+                        values({act.id},'{act.objectType}',{act.objectID},'{act.product}',{act.project},
+                        '{act.actor}','{act.action}','{act.date}','{act.comment}','{act.extra}','{act.read}');";
+                    sr.WriteLine(sqlstr);
+
+                    foreach (var his in act.Histories)
+                    {
+                        sqlstr = $@"delete from zt_history where id={his.id};
+                            insert into zt_history(id,action,field,old,new,diff)
+                            values({his.id},{his.action},'{his.field}','{his.old}','{his.New}','');";
+                        sr.WriteLine(sqlstr);
+                    }
+                }
+
+                foreach (var file in bug.AFiles)
+                {
+                    sqlstr = $@"delete from zt_file where id={file.id};
+                        insert into zt_file(id,pathname,title,extension,size,objectType,
+                        objectID,addedBy,addedDate,downloads,extra,deleted)
+                        values({file.id},'{file.pathname}','{file.title}','{file.extension}',{file.size},'{file.objectType}',
+                        '{file.objectID}','{file.addedBy}','{file.addedDate}','{file.downloads}','','{file.deleted}');";
                     sr.WriteLine(sqlstr);
                 }
             }
-            return sqlpath;
+            sr.Close();
+            sr.Dispose();
+            return "";
         }
 
         private void SetAction(Bug bug,string Hisstr)
         {
+
             XmlDocument xmlDocument = new XmlDocument();
-            Hisstr = Regex.Replace(Hisstr, @"(class='article-content .*')", "class='article-content'");
+            Hisstr = Regex.Replace(Hisstr, @"(class='article-content .*'>)", "class='article-content'>");
+            Hisstr = Hisstr.Replace("&nbsp", "_xu_nbsp");
+            Hisstr = Regex.Replace(Hisstr,"<img src=\"data:image/png;base64,(.*)</div>", "<img src=\"data:image/png;base64,$1\" /></div>");
+
             xmlDocument.LoadXml(Hisstr);
             XmlNodeList xmlNodes = xmlDocument.SelectNodes("/ol/li");
 
@@ -187,30 +232,42 @@ namespace BugRestore
                 else if (spannode.InnerText.Contains("指派给"))
                 {
                     action.action = "assigned";
-                    action.comment = node.SelectNodes(".//div[@class='article-content']").Item(0)?.InnerXml;
+                    action.extra = GetAccount(oplist.Item(1)?.InnerText);
+                    action.comment = node.SelectNodes(".//div[@class='article-content']").Item(0)?.InnerXml
+                        .Replace("_xu_nbsp", "&nbsp").Replace("'", "''");
                     History history = new History();
-                    history.action = 32;
+                    history.id = hisstartid++;
+                    history.action = action.id;
                     history.field = "assignedTo";
-                    var assignedMap = Regex.Match(node.SelectNodes("div").Item(0).InnerText, "旧值为 \"(.*)\"，新值为 \"(.*)").Groups;
-                    history.old = assignedMap[1].Value;
-                    history.New = assignedMap[2].Value;
+                    if (node.SelectNodes("div").Count > 0)
+                    {
+                        var assignedMap = Regex.Match(node.SelectNodes("div").Item(0)?.InnerText, "旧值为 \"(.*)\"，新值为 \"(.*)\"。").Groups;
+                        if (assignedMap.Count > 1)
+                        {
+                            history.old = assignedMap[1].Value;
+                            history.New = assignedMap[2].Value;
+                        }
+                    }
                     action.Histories.Add(history);
                 }
                 else if (spannode.InnerText.Contains("解决"))
                 {
                     action.action = "resolved";
-                    action.comment = node.SelectNodes(".//div[@class='article-content']").Item(0)?.InnerXml;
+                    action.comment = node.SelectNodes(".//div[@class='article-content']").Item(0)?.InnerXml
+                        .Replace("_xu_nbsp", "&nbsp").Replace("'", "''");
                     action.extra = GetResolution(oplist.Item(1).InnerText);
                 }
                 else if (spannode.InnerText.Contains("添加备注"))
                 {
                     action.action = "commented";
-                    action.comment = node.SelectNodes(".//div[@class='article-content']").Item(0)?.InnerXml;
+                    action.comment = node.SelectNodes(".//div[@class='article-content']").Item(0)?.InnerXml
+                        .Replace("_xu_nbsp", "&nbsp").Replace("'", "''");
                 }
                 else if (spannode.InnerText.Contains("激活"))
                 {
                     action.action = "activated";
-                    action.comment = node.SelectNodes(".//div[@class='article-content']").Item(0)?.InnerXml;
+                    action.comment = node.SelectNodes(".//div[@class='article-content']").Item(0)?.InnerXml
+                        .Replace("_xu_nbsp", "&nbsp").Replace("'", "''");
                 }
                 else
                 {
@@ -224,19 +281,26 @@ namespace BugRestore
         private void SetFile(Bug bug, DirectoryInfo directory)
         {
             var dir = directory.GetDirectories($"{bug.id}").FirstOrDefault();
-
             if (dir != null)
             {
-                foreach (var item in dir.GetFiles())
+                var tempPath = $"init/{bug.id}";
+                var destPath = Path.Combine(directory.FullName, tempPath);
+                if (!Directory.Exists(destPath))
+                {
+                    Directory.CreateDirectory(destPath);
+                }
+                foreach (var item in dir.GetFiles().OrderBy(t => t.Name))
                 {
                     AFile aFile = new AFile();
                     aFile.id = filestartid++;
-                    aFile.extension = item.Extension;
+                    aFile.extension = item.Extension.TrimStart('.');
                     aFile.objectID = bug.id;
-                    aFile.pathname = $"init/{bug.id}/{item.Name}";
+                    aFile.pathname = $"{tempPath}/{aFile.id}{item.Extension}";
                     aFile.size = Convert.ToInt32(item.Length);
-                    aFile.title = item.Name;
+                    aFile.title = item.Name.Replace(item.Extension, "");
                     bug.AFiles.Add(aFile);
+
+                    item.CopyTo(Path.Combine(destPath, $"{aFile.id}{item.Extension}"), true);
                 }
             }
         }
@@ -387,7 +451,7 @@ namespace BugRestore
             {
                 return "zoe";
             }
-            if (name.Contains("谢冬冬"))
+            if (name.Contains("谢冬冬") || name.Contains("xiedongdong"))
             {
                 return "jano";
             }
@@ -446,6 +510,30 @@ namespace BugRestore
             if (name.Contains("陈攀"))
             {
                 return "chenpan";
+            }
+            if (name.Contains("林福全"))
+            {
+                return "fuquan_lin";
+            }
+            if (name.Contains("徐唐仁"))
+            {
+                return "xutr";
+            }
+            if (name.Contains("杨荣海"))
+            {
+                return "yangrh";
+            }
+            if (name.Contains("田小强"))
+            {
+                return "tianxq";
+            }
+            if (name.Contains("冯妞妞"))
+            {
+                return "fengnn";
+            }
+            if (name.Contains("宋纪强"))
+            {
+                return "songjq";
             }
             return "admin";
         }

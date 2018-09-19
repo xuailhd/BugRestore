@@ -23,7 +23,7 @@ namespace BugRestore
 
         public int module { get; set; } = 0;
 
-        public int project { get; set; } = 0;
+        public int project { get; set; } = 1;
 
         public int plan { get; set; } = 0;
         public int story { get; set; } = 0;
