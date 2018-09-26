@@ -29,7 +29,7 @@ namespace BugRestore
 
         private void button1_Click(object sender, EventArgs e)
         {
-            //using (StreamReader sr = new StreamReader(File.OpenRead("C:\\backup\\1\\bug-view-2461.html")))
+            //using (StreamReader sr = new StreamReader(File.OpenRead("C:\\backup\\2\\bug-view-6655.html")))
             //{
 
             //    var str = sr.ReadToEnd();
@@ -38,7 +38,7 @@ namespace BugRestore
             //    var stepsstartindex = Regex.Match(str, $@"<ol id='historyItem'>").Index;
             //    if (stepsstartindex > 0)
             //    {
-            //        var stepsendindex = str.IndexOf("</ol>", stepsstartindex);
+            //        var stepsendindex = Regex.Match(str, @"</ol>\n\n</fieldset>").Index;
             //        SetAction(bug, str.Substring(stepsstartindex, stepsendindex - stepsstartindex + 5));
             //    }
 
@@ -68,9 +68,11 @@ namespace BugRestore
                             var stepsstartindex = Regex.Match(str, $@"<div class='content'>(.*)").Index;
                             if (stepsstartindex > 0)
                             {
-                                var stepsendindex = str.IndexOf("</div>", stepsstartindex);
+                                //var stepsendindexold = str.IndexOf("</div>", stepsstartindex);
+                                var stepsendindex = Regex.Match(str, @"</div>\n\s*</fieldset>").Index;
+                                //bug.needup = stepsendindexold != stepsendindex;
                                 bug.steps = str.Substring(stepsstartindex + contentdivLength,
-                                    stepsendindex - (stepsstartindex + contentdivLength)).Replace("'","''");
+                                stepsendindex - (stepsstartindex + contentdivLength)).Replace("'","''").Replace("--","");
                             }
                             bug.severity = Convert.ToInt32(Regex.Match(str, @"<th>严重程度</th>\n\s*<td><strong>(\d)</strong>").Groups[1].Value);
                             bug.type = GetType(Regex.Match(str, $@"<th>Bug类型</th>\n\s*<td>(.*)</td>").Groups[1].Value);
@@ -112,7 +114,7 @@ namespace BugRestore
                             var actionstartindex = Regex.Match(str, $@"<ol id='historyItem'>").Index;
                             if (actionstartindex > 0)
                             {
-                                var actionendindex = str.IndexOf("</ol>", actionstartindex);
+                                var actionendindex = Regex.Match(str, @"</ol>\n\n</fieldset>").Index;
                                 SetAction(bug, str.Substring(actionstartindex, actionendindex - actionstartindex + 5));
                             }
 
@@ -142,14 +144,45 @@ namespace BugRestore
             StreamWriter sr = new StreamWriter(File.Create(path + j.ToString() + ".sql"), Encoding.UTF8);
             foreach (var bug in bugs)
             {
-                if (i++ > 200 * j)
+                if (i++ > 5000 * j)
                 {
                     sr.Close();
                     sr.Dispose();
                     j++;
                     sr = new StreamWriter(File.Create(path + j.ToString() + ".sql"), Encoding.UTF8);
                 }
-                var sqlstr = $@"delete from zt_bug where id={bug.id};
+                string sqlstr = string.Empty;
+
+                //if (bug.needup || bug.openedBy == "huxiaofeng" || bug.openedBy == "huxiaofeng" || bug.assignedTo == "huxiaofeng"
+                //        || bug.resolvedBy == "huxiaofeng" || bug.closedBy == "huxiaofeng" || bug.lastEditedBy == "huxiaofeng")
+                //{
+                //    sqlstr = $@"update zt_bug set steps='{bug.steps}',openedBy='{bug.openedBy}',assignedTo='{bug.assignedTo}',resolvedBy='{bug.resolvedBy}',
+                //            closedBy='{bug.closedBy}',lastEditedBy='{bug.lastEditedBy}' where id={bug.id};";
+
+                //    sr.WriteLine(sqlstr);
+                //}
+
+
+                //foreach (var act in bug.Actions)
+                //{
+                //    if(act.actor == "huxiaofeng")
+                //    {
+                //        sqlstr = $@"update zt_action set actor='{act.actor}' where id={act.id};";
+                //        sr.WriteLine(sqlstr);
+                //    }
+
+
+                //    foreach (var his in act.Histories)
+                //    {
+                //        if(his.old == "huxiaofeng" || his.New == "huxiaofeng")
+                //        {
+                //            sqlstr = $@"update zt_history set old='{his.old}',new='{his.New}' where id={his.id};";
+                //            sr.WriteLine(sqlstr);
+                //        }
+                //    }
+                //}
+
+                sqlstr = $@"delete from zt_bug where id={bug.id};
                     insert into zt_bug(id,product,branch,module,project,plan,story,
                     storyVersion,task,toTask,toStory,title,keywords,severity,pri,
                     type,os,browser,hardware,found,steps,`status`,color,confirmed,
@@ -208,7 +241,8 @@ namespace BugRestore
             XmlDocument xmlDocument = new XmlDocument();
             Hisstr = Regex.Replace(Hisstr, @"(class='article-content .*'>)", "class='article-content'>");
             Hisstr = Hisstr.Replace("&nbsp", "_xu_nbsp");
-            Hisstr = Regex.Replace(Hisstr,"<img src=\"data:image/png;base64,(.*)</div>", "<img src=\"data:image/png;base64,$1\" /></div>");
+            Hisstr = Regex.Replace(Hisstr, "<img src=\"data:image/png;base64,(.*)</div>", "<img src=\"data:image/png;base64,$1\" /></div>");
+            Hisstr = Regex.Replace(Hisstr, "<img src=\"data:image/jpeg;base64,(.*)</div>", "<img src=\"data:image/jpeg;base64,$1\" /></div>");
 
             xmlDocument.LoadXml(Hisstr);
             XmlNodeList xmlNodes = xmlDocument.SelectNodes("/ol/li");
@@ -479,7 +513,7 @@ namespace BugRestore
             {
                 return "tanglei";
             }
-            if (name.Contains("胡笑峰"))
+            if (name.Contains("胡笑锋"))
             {
                 return "huxiaofeng";
             }

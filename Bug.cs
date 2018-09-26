@@ -8,6 +8,7 @@ namespace BugRestore
 {
     public class Bug
     {
+        public bool needup { get; set; }
         public Bug()
         {
             Actions = new List<Action>();
